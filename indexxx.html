@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Химический визуализатор молекул</title>
+
+<style>
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: linear-gradient(135deg,#0f172a,#111827);
+  color: white;
+  text-align: center;
+}
+
+h1 {
+  margin: 15px 0 5px;
+}
+
+p {
+  color: #cbd5e1;
+}
+
+.panel {
+  margin: 12px auto;
+  max-width: 1150px;
+}
+
+input, select {
+  padding: 10px;
+  border-radius: 8px;
+  border: none;
+  width: 230px;
+  margin: 4px;
+}
+
+button {
+  padding: 10px 14px;
+  margin: 5px;
+  border: none;
+  border-radius: 10px;
+  background: #38bdf8;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #7dd3fc;
+}
+
+canvas {
+  background: radial-gradient(circle,#000,#020617);
+  border-radius: 16px;
+  box-shadow: 0 0 25px rgba(56,189,248,0.25);
+  max-width: 95%;
+}
+
+table {
+  margin: 15px auto;
+  border-collapse: collapse;
+  width: 92%;
+  max-width: 1100px;
+}
+
+td, th {
+  border: 1px solid rgba(255,255,255,0.25);
+  padding: 9px;
+}
+
+th {
+  background: rgba(56,189,248,0.3);
+}
+
+.quick {
+  margin: 10px auto;
+  max-width: 1000px;
+}
+
+.quick button {
+  background: rgba(255,255,255,0.12);
+  color: white;
+  border: 1px solid rgba(255,255,255,0.25);
+}
+
+#note {
+  max-width: 950px;
+  margin: 10px auto 25px;
+  color: #cbd5e1;
+  line-height: 1.5;
+}
+</style>
+</head>
+
+<body>
+
+<h1>🧬 Химический визуализатор молекул</h1>
+<p>Визуализация молекул, сравнение веществ и расчёт количества вещества</p>
+
+<div class="panel">
+  <input id="inp" list="moleculeList" placeholder="1-я молекула: H2O, CO2, CH4...">
+  <input id="compareInp" list="moleculeList" placeholder="2-я молекула: NH3, SO2...">
+  <datalist id="moleculeList"></datalist>
+
+  <input id="massInp" type="number" min="0" step="0.01" placeholder="Масса вещества, г">
+
+  <select id="mode">
+    <option value="normal">Структурная модель</option>
+    <option value="electron">Электронные пары</option>
+  </select>
+
+  <button type="button" id="buildBtn">⚛ Построить</button>
+  <button type="button" id="compareBtn">📊 Сравнить</button>
+  <button type="button" id="molesBtn">🧪 Рассчитать n</button>
+  <button type="button" id="randomBtn">🎲 Случайная</button>
+  <button type="button" id="clearBtn">🧹 Очистить</button>
+</div>
+
+<div class="quick" id="quick"></div>
+
+<canvas id="c" width="900" height="500"></canvas>
+
+<div id="info"></div>
+
+<p id="note">
+  Это учебная 2D-модель. Она показывает типы связей, геометрию, полярность,
+  гибридизацию, тривиальные и ИЮПАК-названия, молярную массу и расчёт количества вещества по формуле n = m / M.
+</p>
+
+<script>
+const c = document.getElementById("c");
+const ctx = c.getContext("2d");
+const info = document.getElementById("info");
+const inp = document.getElementById("inp");
+const compareInp = document.getElementById("compareInp");
+const massInp = document.getElementById("massInp");
+const mode = document.getElementById("mode");
+const quick = document.getElementById("quick");
+const moleculeList = document.getElementById("moleculeList");
+
+const colors = {
+  H: "#94a3b8",
+  C: "#22c55e",
+  O: "#ef4444",
+  N: "#3b82f6",
+  S: "#facc15",
+  CL: "#a78bfa"
+};
+
+const atomicMass = {
+  H: 1.008,
+  C: 12.011,
+  O: 15.999,
+  N: 14.007,
+  S: 32.06,
+  CL: 35.45
+};
+
+const molecules = {
+  H2O: {
+    name: "Вода",
+    trivialName: "вода",
+    iupacName: "оксидан",
+    type: "неорганическое соединение",
+    angle: "104.5°",
+    geometry: "изогнутая форма",
+    polarity: "полярная",
+    hybrid: "O: sp³",
+    bondsText: "2 одинарные связи O–H",
+    desc: "У кислорода есть две неподелённые электронные пары, поэтому молекула имеет угловую форму.",
+    atoms: [["O",450,240], ["H",520,330], ["H",380,330]],
+    bonds: [[0,1,1],[0,2,1]],
+    pairs: [[0,-35,-20],[0,35,-20]]
+  },
+
+  CO2: {
+    name: "Углекислый газ",
+    trivialName: "углекислый газ",
+    iupacName: "диоксид углерода",
+    type: "неорганическое соединение",
+    angle: "180°",
+    geometry: "линейная форма",
+    polarity: "молекула в целом неполярная",
+    hybrid: "C: sp",
+    bondsText: "2 двойные связи C=O",
+    desc: "Молекула линейная и симметричная, поэтому дипольные моменты связей компенсируются.",
+    atoms: [["O",290,250], ["C",450,250], ["O",610,250]],
+    bonds: [[0,1,2],[1,2,2]],
+    pairs: [[0,-35,-18],[0,-35,18],[2,35,-18],[2,35,18]]
+  },
+
+  CH4: {
+    name: "Метан",
+    trivialName: "болотный газ",
+    iupacName: "метан",
+    type: "органическое соединение, алкан",
+    angle: "109.5°",
+    geometry: "тетраэдрическая",
+    polarity: "почти неполярная",
+    hybrid: "C: sp³",
+    bondsText: "4 одинарные связи C–H",
+    desc: "Простейший алкан. В реальности имеет 3D-тетраэдрическую структуру.",
+    atoms: [["C",450,250], ["H",580,250], ["H",380,140], ["H",340,330], ["H",520,360]],
+    bonds: [[0,1,1],[0,2,1],[0,3,1],[0,4,1]],
+    pairs: []
+  },
+
+  NH3: {
+    name: "Аммиак",
+    trivialName: "аммиак",
+    iupacName: "азан",
+    type: "неорганическое соединение",
+    angle: "107°",
+    geometry: "тригональная пирамида",
+    polarity: "полярная",
+    hybrid: "N: sp³",
+    bondsText: "3 одинарные связи N–H",
+    desc: "У азота есть неподелённая электронная пара, поэтому форма молекулы пирамидальная.",
+    atoms: [["N",450,245], ["H",570,255], ["H",365,165], ["H",360,335]],
+    bonds: [[0,1,1],[0,2,1],[0,3,1]],
+    pairs: [[0,0,-42]]
+  },
+
+  C6H6: {
+    name: "Бензол",
+    trivialName: "бензол",
+    iupacName: "бензол",
+    type: "ароматический углеводород",
+    angle: "120°",
+    geometry: "плоское шестиугольное кольцо",
+    polarity: "неполярная",
+    hybrid: "C: sp²",
+    bondsText: "ароматическая π-система",
+    desc: "В бензоле π-электроны делокализованы по всему кольцу. Это делает молекулу ароматической.",
+    special: "benzene"
+  },
+
+  C7H8: {
+    name: "Толуол",
+    trivialName: "толуол",
+    iupacName: "метилбензол",
+    type: "ароматический углеводород",
+    angle: "120° в кольце",
+    geometry: "бензольное кольцо + CH₃",
+    polarity: "почти неполярная",
+    hybrid: "кольцо: sp², CH₃: sp³",
+    bondsText: "ароматическая система и одинарные связи",
+    desc: "Толуол — производное бензола, где один атом водорода заменён метильной группой CH₃.",
+    special: "toluene"
+  },
+  C2H5OH: {
+    name: "Этанол",
+    trivialName: "этиловый спирт",
+    iupacName: "этанол",
+    type: "спирт",
+    angle: "около 109°",
+    geometry: "цепная структура",
+    polarity: "полярная группа –OH",
+    hybrid: "C: sp³, O: sp³",
+    bondsText: "одинарные σ-связи",
+    desc: "Гидроксильная группа –OH позволяет молекуле образовывать водородные связи.",
+    atoms: [
+      ["C",320,250], ["C",440,250], ["O",560,205], ["H",650,205],
+      ["H",265,170], ["H",255,320], ["H",320,365], ["H",440,360], ["H",445,140]
+    ],
+    bonds: [[0,1,1],[1,2,1],[2,3,1],[0,4,1],[0,5,1],[0,6,1],[1,7,1],[1,8,1]],
+    pairs: [[2,0,-38],[2,36,-10]]
+  },
+
+  H2SO4: {
+    name: "Серная кислота",
+    trivialName: "серная кислота",
+    iupacName: "тетраоксосерная(VI) кислота",
+    type: "минеральная кислота",
+    angle: "около 109° около S",
+    geometry: "тетраэдрическое окружение серы",
+    polarity: "сильно полярная",
+    hybrid: "условная школьная модель",
+    bondsText: "2 двойные связи S=O и 2 связи S–O–H",
+    desc: "В школьной структурной записи серной кислоты показывают две двойные связи S=O и две гидроксильные группы.",
+    atoms: [
+      ["S",450,250], ["O",580,250], ["O",320,250], ["O",450,120],
+      ["O",450,380], ["H",660,210], ["H",240,210]
+    ],
+    bonds: [[0,1,2],[0,2,2],[0,3,1],[0,4,1],[1,5,1],[2,6,1]],
+    pairs: [[1,35,-24],[2,-35,-24],[3,-28,-20],[3,28,-20],[4,-28,20],[4,28,20]]
+  },
+
+  HCHO: {
+    name: "Формальдегид",
+    trivialName: "формальдегид",
+    iupacName: "метаналь",
+    type: "альдегид",
+    angle: "около 120°",
+    geometry: "тригонально-плоская",
+    polarity: "полярная C=O",
+    hybrid: "C: sp², O: sp²",
+    bondsText: "одна двойная связь C=O и две связи C–H",
+    desc: "Карбонильная группа C=O делает молекулу полярной и химически активной.",
+    atoms: [["C",450,250], ["O",590,250], ["H",370,170], ["H",370,330]],
+    bonds: [[0,1,2],[0,2,1],[0,3,1]],
+    pairs: [[1,36,-18],[1,36,18]]
+  },
+
+  O2: {
+    name: "Кислород",
+    trivialName: "кислород",
+    iupacName: "дикислород",
+    type: "простое вещество",
+    angle: "180°",
+    geometry: "двухатомная молекула",
+    polarity: "неполярная",
+    hybrid: "не указывается в простой модели",
+    bondsText: "двойная связь O=O",
+    desc: "Кислород — пример молекулы с двойной связью. В более сложной модели учитывают парамагнетизм O₂.",
+    atoms: [["O",380,250], ["O",520,250]],
+    bonds: [[0,1,2]],
+    pairs: [[0,-35,-18],[0,-35,18],[1,35,-18],[1,35,18]]
+  },
+
+  N2: {
+    name: "Азот",
+    trivialName: "азот",
+    iupacName: "диазот",
+    type: "простое вещество",
+    angle: "180°",
+    geometry: "двухатомная молекула",
+    polarity: "неполярная",
+    hybrid: "не указывается в простой модели",
+    bondsText: "тройная связь N≡N",
+    desc: "Очень прочная тройная связь объясняет химическую устойчивость молекулярного азота.",
+    atoms: [["N",380,250], ["N",520,250]],
+    bonds: [[0,1,3]],
+    pairs: [[0,-38,0],[1,38,0]]
+  },
+
+  HCL: {
+    name: "Хлороводород",
+    trivialName: "хлороводород; в растворе — соляная кислота",
+    iupacName: "хлороводород",
+    type: "неорганическое соединение",
+    angle: "180°",
+    geometry: "линейная двухатомная молекула",
+    polarity: "полярная связь H–Cl",
+    hybrid: "не применяется в простой модели",
+    bondsText: "одинарная связь H–Cl",
+    desc: "Из-за высокой электроотрицательности хлора связь H–Cl является полярной.",
+    atoms: [["H",365,250], ["CL",535,250]],
+    bonds: [[0,1,1]],
+    pairs: [[1,35,-25],[1,42,0],[1,35,25]]
+  },
+
+  SO2: {
+    name: "Диоксид серы",
+    trivialName: "сернистый газ",
+    iupacName: "диоксид серы",
+    type: "кислотный оксид",
+    angle: "около 119°",
+    geometry: "изогнутая",
+    polarity: "полярная",
+    hybrid: "S: sp²",
+    bondsText: "2 связи S=O в резонансной модели",
+    desc: "Молекула SO₂ имеет изогнутую форму, поэтому дипольные моменты не компенсируются.",
+    atoms: [["S",450,250], ["O",320,310], ["O",580,310]],
+    bonds: [[0,1,2],[0,2,2]],
+    pairs: [[0,0,-40],[1,-35,0],[2,35,0]]
+  },
+
+  SO3: {
+    name: "Триоксид серы",
+    trivialName: "серный ангидрид",
+    iupacName: "триоксид серы",
+    type: "кислотный оксид",
+    angle: "120°",
+    geometry: "тригонально-плоская",
+    polarity: "неполярная в идеальной модели",
+    hybrid: "S: sp²",
+    bondsText: "3 связи S=O в резонансной модели",
+    desc: "SO₃ имеет плоскую симметричную структуру, связанную с резонансным распределением электронной плотности.",
+    atoms: [["S",450,250], ["O",450,105], ["O",325,325], ["O",575,325]],
+    bonds: [[0,1,2],[0,2,2],[0,3,2]],
+    pairs: [[1,-28,-22],[1,28,-22],[2,-35,15],[3,35,15]]
+  },
+
+  HCN: {
+    name: "Синильная кислота",
+    trivialName: "синильная кислота",
+    iupacName: "циановодород",
+    type: "кислота / нитриловая структура",
+    angle: "180°",
+    geometry: "линейная",
+    polarity: "полярная",
+    hybrid: "C: sp, N: sp",
+    bondsText: "H–C≡N",
+    desc: "Молекула линейная, содержит важную для химии тройную связь C≡N.",
+    atoms: [["H",300,250], ["C",450,250], ["N",610,250]],
+    bonds: [[0,1,1],[1,2,3]],
+    pairs: [[2,42,0]]
+  },
+
+  C2H4: {
+    name: "Этен / этилен",
+    trivialName: "этилен",
+    iupacName: "этен",
+    type: "алкен",
+    angle: "около 120°",
+    geometry: "плоская около C=C",
+    polarity: "почти неполярная",
+    hybrid: "C: sp²",
+    bondsText: "двойная связь C=C",
+    desc: "Этен показывает отличие алкенов от алканов: двойная связь ограничивает вращение и делает фрагмент плоским.",
+    atoms: [["C",390,250], ["C",510,250], ["H",320,160], ["H",320,340], ["H",580,160], ["H",580,340]],
+    bonds: [[0,1,2],[0,2,1],[0,3,1],[1,4,1],[1,5,1]],
+    pairs: []
+  },
+
+  C2H2: {
+    name: "Этин / ацетилен",
+    trivialName: "ацетилен",
+    iupacName: "этин",
+    type: "алкин",
+    angle: "180°",
+    geometry: "линейная",
+    polarity: "неполярная",
+    hybrid: "C: sp",
+    bondsText: "тройная связь C≡C",
+    desc: "Ацетилен содержит тройную связь C≡C, поэтому атомы H–C–C–H расположены линейно.",
+    atoms: [["H",250,250], ["C",390,250], ["C",510,250], ["H",650,250]],
+    bonds: [[0,1,1],[1,2,3],[2,3,1]],
+    pairs: []
+  },
+
+  CH3COOH: {
+    name: "Уксусная кислота",
+    trivialName: "уксусная кислота",
+    iupacName: "этановая кислота",
+    type: "карбоновая кислота",
+    angle: "около 120° у C=O; около 109° у CH₃",
+    geometry: "карбоксильная группа + метильная группа",
+    polarity: "полярная",
+    hybrid: "C карбоксила: sp²; C метила: sp³",
+    bondsText: "C=O и O–H в группе –COOH",
+    desc: "Карбоксильная группа –COOH объясняет кислотные свойства уксусной кислоты.",
+    atoms: [
+      ["C",330,250], ["C",455,250], ["O",570,190], ["O",570,320],
+      ["H",670,320], ["H",260,170], ["H",240,250], ["H",260,330]
+    ],
+    bonds: [[0,1,1],[1,2,2],[1,3,1],[3,4,1],[0,5,1],[0,6,1],[0,7,1]],
+    pairs: [[2,36,-18],[2,36,18],[3,35,18],[3,10,38]]
+  }
+};
+function normalizeFormula(value) {
+  return value.trim().toUpperCase().replace(/\s+/g,"");
+}
+
+function formatSymbol(s) {
+  if (s === "CL") return "Cl";
+  return s;
+}
+
+function parseFormula(formula) {
+  const result = {};
+  const re = /(CL|[A-Z])(\d*)/g;
+  let match;
+
+  while ((match = re.exec(formula)) !== null) {
+    const element = match[1];
+    const count = match[2] ? Number(match[2]) : 1;
+    result[element] = (result[element] || 0) + count;
+  }
+
+  return result;
+}
+
+function molarMass(formula) {
+  const composition = parseFormula(formula);
+  let total = 0;
+
+  for (const element in composition) {
+    total += (atomicMass[element] || 0) * composition[element];
+  }
+
+  return total;
+}
+
+function compositionText(formula) {
+  const composition = parseFormula(formula);
+
+  return Object.entries(composition)
+    .map(([element, count]) => `${formatSymbol(element)}: ${count}`)
+    .join(", ");
+}
+
+function drawBackground() {
+  ctx.clearRect(0,0,c.width,c.height);
+
+  ctx.strokeStyle = "rgba(148,163,184,0.08)";
+  ctx.lineWidth = 1;
+
+  for (let x = 0; x <= c.width; x += 50) {
+    ctx.beginPath();
+    ctx.moveTo(x,0);
+    ctx.lineTo(x,c.height);
+    ctx.stroke();
+  }
+
+  for (let y = 0; y <= c.height; y += 50) {
+    ctx.beginPath();
+    ctx.moveTo(0,y);
+    ctx.lineTo(c.width,y);
+    ctx.stroke();
+  }
+}
+
+function line(x1,y1,x2,y2) {
+  ctx.beginPath();
+  ctx.moveTo(x1,y1);
+  ctx.lineTo(x2,y2);
+  ctx.stroke();
+}
+
+function drawBond(x1,y1,x2,y2,order) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.hypot(dx,dy);
+  const nx = -dy / len;
+  const ny = dx / len;
+
+  ctx.strokeStyle = "rgba(255,255,255,0.9)";
+  ctx.lineWidth = 4;
+  ctx.lineCap = "round";
+
+  if (order === 1) {
+    line(x1,y1,x2,y2);
+  }
+
+  if (order === 2) {
+    ctx.lineWidth = 3;
+    line(x1 + nx*6, y1 + ny*6, x2 + nx*6, y2 + ny*6);
+    line(x1 - nx*6, y1 - ny*6, x2 - nx*6, y2 - ny*6);
+  }
+
+  if (order === 3) {
+    ctx.lineWidth = 3;
+    line(x1,y1,x2,y2);
+    line(x1 + nx*9, y1 + ny*9, x2 + nx*9, y2 + ny*9);
+    line(x1 - nx*9, y1 - ny*9, x2 - nx*9, y2 - ny*9);
+  }
+}
+
+function drawAtom(symbol,x,y) {
+  const color = colors[symbol] || "#38bdf8";
+  const radius = symbol.length > 1 ? 25 : 22;
+
+  ctx.beginPath();
+  ctx.arc(x+4,y+5,radius,0,Math.PI*2);
+  ctx.fillStyle = "rgba(0,0,0,0.45)";
+  ctx.fill();
+
+  const grad = ctx.createRadialGradient(
+    x - 8, y - 8, 3,
+    x, y, radius
+  );
+
+  grad.addColorStop(0, "rgba(255,255,255,0.95)");
+  grad.addColorStop(0.28, color);
+  grad.addColorStop(1, "rgba(15,23,42,0.9)");
+
+  ctx.beginPath();
+  ctx.arc(x,y,radius,0,Math.PI*2);
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.7)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(x - 7, y - 8, 5, 0, Math.PI*2);
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
+  ctx.fill();
+
+  ctx.fillStyle = "white";
+  ctx.font = symbol.length > 1 ? "bold 13px Arial" : "bold 15px Arial";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(formatSymbol(symbol),x,y);
+}
+
+function drawPair(x,y,ox,oy) {
+  ctx.fillStyle = "#7dd3fc";
+
+  ctx.beginPath();
+  ctx.arc(x + ox - 5, y + oy, 3, 0, Math.PI*2);
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(x + ox + 5, y + oy, 3, 0, Math.PI*2);
+  ctx.fill();
+}
+
+function drawAromaticCircle(cx,cy,r) {
+  ctx.beginPath();
+  ctx.arc(cx,cy,r,0,Math.PI*2);
+  ctx.strokeStyle = "#38bdf8";
+  ctx.lineWidth = 3;
+  ctx.setLineDash([8,8]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawBenzene(withMethyl) {
+  const cx = 450;
+  const cy = 250;
+  const r = 120;
+  const pts = [];
+
+  for (let i = 0; i < 6; i++) {
+    const a = i * Math.PI / 3;
+    pts.push([
+      cx + Math.cos(a) * r,
+      cy + Math.sin(a) * r
+    ]);
+  }
+
+  for (let i = 0; i < 6; i++) {
+    drawBond(
+      pts[i][0],
+      pts[i][1],
+      pts[(i+1)%6][0],
+      pts[(i+1)%6][1],
+      1
+    );
+  }
+
+  drawAromaticCircle(cx,cy,67);
+
+  for (let i = 0; i < 6; i++) {
+    drawAtom("C",pts[i][0],pts[i][1]);
+  }
+
+  if (withMethyl) {
+    const ch3 = [cx + r + 95, cy];
+    drawBond(pts[0][0],pts[0][1],ch3[0],ch3[1],1);
+    drawAtom("C",ch3[0],ch3[1]);
+
+    ctx.fillStyle = "white";
+    ctx.font = "bold 14px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("CH₃",ch3[0],ch3[1] + 38);
+  } else {
+    for (let i = 0; i < 6; i++) {
+      const hx = pts[i][0] + (pts[i][0] - cx) * 0.42;
+      const hy = pts[i][1] + (pts[i][1] - cy) * 0.42;
+
+      drawBond(pts[i][0],pts[i][1],hx,hy,1);
+      drawAtom("H",hx,hy);
+    }
+  }
+}
+
+function drawMolecule(mol) {
+  drawBackground();
+
+  if (mol.special === "benzene") {
+    drawBenzene(false);
+    return;
+  }
+
+  if (mol.special === "toluene") {
+    drawBenzene(true);
+    return;
+  }
+
+  for (const b of mol.bonds) {
+    const a1 = mol.atoms[b[0]];
+    const a2 = mol.atoms[b[1]];
+    drawBond(a1[1],a1[2],a2[1],a2[2],b[2]);
+  }
+
+  for (const a of mol.atoms) {
+    drawAtom(a[0],a[1],a[2]);
+  }
+
+  if (mode.value === "electron") {
+    for (const p of mol.pairs) {
+      const atom = mol.atoms[p[0]];
+      drawPair(atom[1],atom[2],p[1],p[2]);
+    }
+  }
+}
+
+function renderInfo(formula,mol) {
+  info.innerHTML = `
+    <table>
+      <tr><th>Свойство</th><th>Значение</th></tr>
+      <tr><td>Формула</td><td>${formula}</td></tr>
+      <tr><td>Название</td><td>${mol.name}</td></tr>
+      <tr><td>Тривиальное название</td><td>${mol.trivialName}</td></tr>
+      <tr><td>Название по ИЮПАК</td><td>${mol.iupacName}</td></tr>
+      <tr><td>Тип</td><td>${mol.type}</td></tr>
+      <tr><td>Геометрия</td><td>${mol.geometry}</td></tr>
+      <tr><td>Углы</td><td>${mol.angle}</td></tr>
+      <tr><td>Полярность</td><td>${mol.polarity}</td></tr>
+      <tr><td>Гибридизация</td><td>${mol.hybrid}</td></tr>
+      <tr><td>Связи</td><td>${mol.bondsText}</td></tr>
+      <tr><td>Молярная масса</td><td>${molarMass(formula).toFixed(2)} г/моль</td></tr>
+      <tr><td>Состав</td><td>${compositionText(formula)}</td></tr>
+      <tr><td>Описание</td><td>${mol.desc}</td></tr>
+    </table>
+  `;
+}
+
+function build() {
+  const formula = normalizeFormula(inp.value);
+  const mol = molecules[formula];
+
+  if (!mol) {
+    drawBackground();
+
+    ctx.fillStyle = "white";
+    ctx.font = "bold 24px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("Молекула пока не поддерживается",450,235);
+
+    ctx.font = "16px Arial";
+    ctx.fillStyle = "#cbd5e1";
+    ctx.fillText("Выберите формулу из выпадающего списка или быстрых кнопок",450,270);
+
+    info.innerHTML = `
+      <table>
+        <tr><th>Ошибка</th></tr>
+        <tr><td>Такой формулы пока нет в базе данных.</td></tr>
+      </table>
+    `;
+    return;
+  }
+
+  drawMolecule(mol);
+  renderInfo(formula,mol);
+}
+
+function compareMolecules() {
+  const f1 = normalizeFormula(inp.value);
+  const f2 = normalizeFormula(compareInp.value);
+  const m1 = molecules[f1];
+  const m2 = molecules[f2];
+
+  if (!m1 || !m2) {
+    info.innerHTML = `
+      <table>
+        <tr><th>Ошибка сравнения</th></tr>
+        <tr><td>Введите две поддерживаемые формулы, например H2O и CO2.</td></tr>
+      </table>
+    `;
+    return;
+  }
+
+  drawMolecule(m1);
+
+  info.innerHTML = `
+    <table>
+      <tr><th>Свойство</th><th>${f1} — ${m1.name}</th><th>${f2} — ${m2.name}</th></tr>
+      <tr><td>Тривиальное название</td><td>${m1.trivialName}</td><td>${m2.trivialName}</td></tr>
+      <tr><td>Название по ИЮПАК</td><td>${m1.iupacName}</td><td>${m2.iupacName}</td></tr>
+      <tr><td>Тип</td><td>${m1.type}</td><td>${m2.type}</td></tr>
+      <tr><td>Геометрия</td><td>${m1.geometry}</td><td>${m2.geometry}</td></tr>
+      <tr><td>Углы</td><td>${m1.angle}</td><td>${m2.angle}</td></tr>
+      <tr><td>Полярность</td><td>${m1.polarity}</td><td>${m2.polarity}</td></tr>
+      <tr><td>Гибридизация</td><td>${m1.hybrid}</td><td>${m2.hybrid}</td></tr>
+      <tr><td>Связи</td><td>${m1.bondsText}</td><td>${m2.bondsText}</td></tr>
+      <tr><td>Молярная масса</td><td>${molarMass(f1).toFixed(2)} г/моль</td><td>${molarMass(f2).toFixed(2)} г/моль</td></tr>
+      <tr><td>Состав</td><td>${compositionText(f1)}</td><td>${compositionText(f2)}</td></tr>
+      <tr><td>Научный вывод</td><td>${m1.desc}</td><td>${m2.desc}</td></tr>
+    </table>
+  `;
+}
+
+function calculateMoles() {
+  const formula = normalizeFormula(inp.value);
+  const mol = molecules[formula];
+  const mass = Number(massInp.value);
+
+  if (!mol) {
+    info.innerHTML = `
+      <table>
+        <tr><th>Ошибка расчёта</th></tr>
+        <tr><td>Сначала введите поддерживаемую формулу в первое поле.</td></tr>
+      </table>
+    `;
+    return;
+  }
+
+  if (!mass || mass <= 0) {
+    info.innerHTML = `
+      <table>
+        <tr><th>Ошибка расчёта</th></tr>
+        <tr><td>Введите массу вещества в граммах больше нуля.</td></tr>
+      </table>
+    `;
+    return;
+  }
+
+  const M = molarMass(formula);
+  const n = mass / M;
+
+  drawMolecule(mol);
+
+  info.innerHTML = `
+    <table>
+      <tr><th>Величина</th><th>Значение</th></tr>
+      <tr><td>Формула вещества</td><td>${formula}</td></tr>
+      <tr><td>Название</td><td>${mol.name}</td></tr>
+      <tr><td>Тривиальное название</td><td>${mol.trivialName}</td></tr>
+      <tr><td>Название по ИЮПАК</td><td>${mol.iupacName}</td></tr>
+      <tr><td>Масса m</td><td>${mass.toFixed(2)} г</td></tr>
+      <tr><td>Молярная масса M</td><td>${M.toFixed(2)} г/моль</td></tr>
+      <tr><td>Формула расчёта</td><td>n = m / M</td></tr>
+      <tr><td>Количество вещества n</td><td><b>${n.toFixed(4)} моль</b></td></tr>
+    </table>
+  `;
+}
+
+function clearAll() {
+  drawBackground();
+  info.innerHTML = "";
+}
+
+function randomMolecule() {
+  const keys = Object.keys(molecules);
+  const random = keys[Math.floor(Math.random() * keys.length)];
+  inp.value = random;
+  build();
+}
+
+function makeQuickButtonsAndList() {
+  const keys = Object.keys(molecules);
+
+  for (const key of keys) {
+    const mol = molecules[key];
+
+    const option = document.createElement("option");
+    option.value = key;
+    option.label = key + " — " + mol.name + " — " + mol.iupacName;
+    moleculeList.appendChild(option);
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = key;
+    btn.title = mol.name + "; " + mol.iupacName;
+
+    btn.onclick = function() {
+      inp.value = key;
+      build();
+    };
+
+    quick.appendChild(btn);
+  }
+}
+
+document.getElementById("buildBtn").onclick = build;
+document.getElementById("compareBtn").onclick = compareMolecules;
+document.getElementById("molesBtn").onclick = calculateMoles;
+document.getElementById("randomBtn").onclick = randomMolecule;
+document.getElementById("clearBtn").onclick = clearAll;
+
+inp.addEventListener("keydown", function(e) {
+  if (e.key === "Enter") {
+    build();
+  }
+});
+
+compareInp.addEventListener("keydown", function(e) {
+  if (e.key === "Enter") {
+    compareMolecules();
+  }
+});
+
+massInp.addEventListener("keydown", function(e) {
+  if (e.key === "Enter") {
+    calculateMoles();
+  }
+});
+
+mode.addEventListener("change", function() {
+  if (inp.value.trim() !== "") {
+    build();
+  }
+});
+
+makeQuickButtonsAndList();
+clearAll();
+</script>
+
+</body>
+</html>
